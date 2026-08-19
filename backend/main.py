@@ -61,17 +61,6 @@ async def extract_actions(request: ActionItemsRequest):
 
     return action_items
 
-class ActionItemsRequest(BaseModel):
-    transcript: str
-
-
-@app.post("/actions")
-async def extract_actions(request: ActionItemsRequest):
-
-    action_items = extract_action_items(request.transcript)
-
-    return action_items
-
 class DecisionsRequest(BaseModel):
     transcript: str
 
@@ -110,3 +99,54 @@ async def generate_email(request: EmailRequest):
         "body": email.body,
         "message_id": message_id,
     }
+
+@app.post("/process-meeting")
+async def process_meeting(
+    recipient: str,
+    file: UploadFile = File(...),
+):
+
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_path = os.path.join(upload_dir, file.filename)
+
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    transcript = transcribe_audio(file_path)
+
+    summary = summarize_meeting(transcript)
+
+    action_items = extract_action_items(transcript)
+
+    decisions = extract_decisions(transcript)
+
+    action_items_data = action_items.model_dump()
+    decisions_data = decisions.model_dump()
+
+    followup_email = generate_followup_email(
+        summary=summary,
+        action_items=str(action_items_data),
+        decisions=str(decisions_data),
+    )
+
+    message_id = send_email(
+    recipient,
+    followup_email.subject,
+    followup_email.body,
+)
+
+    return {
+    "filename": file.filename,
+    "transcript": transcript,
+    "summary": summary,
+    "action_items": action_items_data,
+    "decisions": decisions_data,
+    "followup_email": {
+        "subject": followup_email.subject,
+        "body": followup_email.body,
+    },
+    "email_sent": True,
+    "message_id": message_id,
+}
